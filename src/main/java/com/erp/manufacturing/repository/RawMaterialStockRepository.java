@@ -39,5 +39,8 @@ public interface RawMaterialStockRepository extends JpaRepository<RawMaterialSto
 
     @Query("SELECT s FROM RawMaterialStock s WHERE s.expiryDate IS NOT NULL AND s.expiryDate BETWEEN CURRENT_DATE AND :futureDate")
     List<RawMaterialStock> findExpiringStock(@Param("futureDate") java.time.LocalDate futureDate);
+
+    @Query("SELECT s FROM RawMaterialStock s WHERE s.quantity <= s.rawMaterial.reorderLevel")
+    List<RawMaterialStock> findLowStockItems();
 }
 

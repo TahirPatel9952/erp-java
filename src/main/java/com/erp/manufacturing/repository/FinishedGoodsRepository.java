@@ -45,5 +45,7 @@ public interface FinishedGoodsRepository extends JpaRepository<FinishedGoods, Lo
 
     @Query("SELECT COUNT(fg) FROM FinishedGoods fg WHERE fg.isActive = true")
     long countActive();
+
+    List<FinishedGoods> findByIsActiveTrue();
 }
 

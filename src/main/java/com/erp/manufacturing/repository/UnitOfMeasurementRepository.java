@@ -23,5 +23,11 @@ public interface UnitOfMeasurementRepository extends JpaRepository<UnitOfMeasure
 
     @Query("SELECT u FROM UnitOfMeasurement u WHERE u.isActive = true AND u.type = :type")
     List<UnitOfMeasurement> findActiveByType(UnitType type);
+
+    List<UnitOfMeasurement> findByIsActiveTrue();
+
+    List<UnitOfMeasurement> findByBaseUnitIsNull();
+
+    boolean existsBySymbol(String symbol);
 }
 

@@ -48,5 +48,19 @@ public class PageResponse<T> {
                 .empty(page.isEmpty())
                 .build();
     }
+
+    // Alias method for convenience
+    public static <R, T> PageResponse<R> of(List<R> content, Page<T> page) {
+        return PageResponse.<R>builder()
+                .content(content)
+                .pageNumber(page.getNumber())
+                .pageSize(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .first(page.isFirst())
+                .last(page.isLast())
+                .empty(page.isEmpty())
+                .build();
+    }
 }
 

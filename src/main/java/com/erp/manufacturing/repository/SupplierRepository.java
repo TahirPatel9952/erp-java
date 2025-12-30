@@ -32,5 +32,7 @@ public interface SupplierRepository extends JpaRepository<Supplier, Long> {
 
     @Query("SELECT COUNT(s) FROM Supplier s WHERE s.isActive = true")
     long countActive();
+
+    List<Supplier> findByIsActiveTrue();
 }
 

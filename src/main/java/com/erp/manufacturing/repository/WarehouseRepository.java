@@ -28,5 +28,9 @@ public interface WarehouseRepository extends JpaRepository<Warehouse, Long> {
 
     @Query("SELECT w FROM Warehouse w WHERE w.isActive = true")
     List<Warehouse> findAllActive();
+
+    List<Warehouse> findByIsActiveTrue();
+
+    List<Warehouse> findByNameContainingIgnoreCaseOrCodeContainingIgnoreCase(String name, String code);
 }
 

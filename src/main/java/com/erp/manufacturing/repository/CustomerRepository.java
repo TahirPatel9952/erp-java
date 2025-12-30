@@ -34,5 +34,9 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
     @Query("SELECT COUNT(c) FROM Customer c WHERE c.isActive = true")
     long countActive();
+
+    List<Customer> findByIsActiveTrue();
+
+    List<Customer> findByCustomerType(String customerType);
 }
 

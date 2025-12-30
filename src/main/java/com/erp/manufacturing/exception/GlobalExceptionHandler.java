@@ -60,6 +60,15 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error(ex.getMessage(), HttpStatus.BAD_REQUEST.value()));
     }
 
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiResponse<?>> handleBusinessException(
+            BusinessException ex, WebRequest request) {
+        log.error("Business exception: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage(), HttpStatus.BAD_REQUEST.value()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<?>> handleValidationException(
             MethodArgumentNotValidException ex) {

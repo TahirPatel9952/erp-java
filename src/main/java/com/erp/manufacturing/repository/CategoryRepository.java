@@ -25,7 +25,11 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
 
     List<Category> findByParentIdIsNull();
 
+    List<Category> findByParentIsNull();
+
     List<Category> findByParentId(Long parentId);
+
+    List<Category> findByIsActiveTrue();
 
     @Query("SELECT c FROM Category c WHERE " +
            "LOWER(c.name) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
