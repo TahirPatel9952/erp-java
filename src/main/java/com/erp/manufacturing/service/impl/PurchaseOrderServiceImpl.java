@@ -37,6 +37,7 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     private final SupplierRepository supplierRepository;
     private final WarehouseRepository warehouseRepository;
     private final RawMaterialRepository rawMaterialRepository;
+    private final UnitOfMeasurementRepository unitRepository;
     private final UserRepository userRepository;
 
     @Override
@@ -205,8 +206,9 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
         PurchaseOrder po = purchaseOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Purchase Order", "id", id));
 
-        if (po.getStatus() != OrderStatus.PENDING_APPROVAL) {
-            throw new BusinessException("Can only approve purchase orders in PENDING_APPROVAL status");
+        // Allow approving from both DRAFT and PENDING_APPROVAL status
+        if (po.getStatus() != OrderStatus.DRAFT && po.getStatus() != OrderStatus.PENDING_APPROVAL) {
+            throw new BusinessException("Can only approve purchase orders in DRAFT or PENDING_APPROVAL status");
         }
 
         Long userId = getCurrentUserId();
@@ -297,11 +299,19 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
         RawMaterial rm = rawMaterialRepository.findById(request.getRawMaterialId())
                 .orElseThrow(() -> new ResourceNotFoundException("Raw Material", "id", request.getRawMaterialId()));
 
+        // Get unit from raw material if not provided in request
+        UnitOfMeasurement unit = rm.getUnit();
+        if (unit == null) {
+            throw new BusinessException("Raw Material " + rm.getName() + " does not have a unit assigned");
+        }
+
         return PurchaseOrderItem.builder()
                 .rawMaterial(rm)
                 .quantity(request.getQuantity())
+                .unit(unit)
                 .unitPrice(request.getUnitPrice())
-                .taxPercent(request.getTaxPercent() != null ? request.getTaxPercent() : rm.getTaxPercent())
+                .taxPercent(request.getTaxPercent() != null ? request.getTaxPercent() : 
+                    (rm.getTaxPercent() != null ? rm.getTaxPercent() : new BigDecimal("18")))
                 .notes(request.getNotes())
                 .build();
     }
@@ -350,8 +360,9 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
                 .rawMaterialId(rm.getId())
                 .rawMaterialCode(rm.getCode())
                 .rawMaterialName(rm.getName())
-                .unitName(rm.getUnit() != null ? rm.getUnit().getName() : null)
-                .unitSymbol(rm.getUnit() != null ? rm.getUnit().getSymbol() : null)
+                .unitId(item.getUnit() != null ? item.getUnit().getId() : (rm.getUnit() != null ? rm.getUnit().getId() : null))
+                .unitName(item.getUnit() != null ? item.getUnit().getName() : (rm.getUnit() != null ? rm.getUnit().getName() : null))
+                .unitSymbol(item.getUnit() != null ? item.getUnit().getSymbol() : (rm.getUnit() != null ? rm.getUnit().getSymbol() : null))
                 .quantity(item.getQuantity())
                 .receivedQuantity(item.getReceivedQuantity())
                 .unitPrice(item.getUnitPrice())

@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -33,6 +34,9 @@ public class WorkOrderServiceImpl implements WorkOrderService {
     private final BomHeaderRepository bomHeaderRepository;
     private final FinishedGoodsRepository finishedGoodsRepository;
     private final WarehouseRepository warehouseRepository;
+    private final InProcessMaterialRepository inProcessMaterialRepository;
+    private final InProcessStockRepository inProcessStockRepository;
+    private final FinishedGoodsStockRepository finishedGoodsStockRepository;
 
     @Override
     public WorkOrderResponse create(WorkOrderRequest request) {
@@ -186,7 +190,59 @@ public class WorkOrderServiceImpl implements WorkOrderService {
 
         workOrder.setStatus(WorkOrderStatus.IN_PROGRESS);
         workOrder.setActualStartDate(LocalDateTime.now());
-        return mapToResponse(workOrderRepository.save(workOrder));
+        WorkOrder savedWorkOrder = workOrderRepository.save(workOrder);
+
+        // Create In-Process Stock entry when work order starts
+        createInProcessStock(savedWorkOrder);
+
+        log.info("Work order started: {} - In-process stock created", savedWorkOrder.getWorkOrderNo());
+        return mapToResponse(savedWorkOrder);
+    }
+
+    private void createInProcessStock(WorkOrder workOrder) {
+        FinishedGoods finishedGoods = workOrder.getFinishedGoods();
+        
+        // Find or create InProcessMaterial for this finished goods
+        InProcessMaterial inProcessMaterial = inProcessMaterialRepository.findByCode(finishedGoods.getCode())
+                .orElseGet(() -> {
+                    // Create new InProcessMaterial if it doesn't exist
+                    InProcessMaterial newMaterial = InProcessMaterial.builder()
+                            .name(finishedGoods.getName() + " (In-Process)")
+                            .code(finishedGoods.getCode() + "-WIP")
+                            .description("In-process material for " + finishedGoods.getName())
+                            .stage("PRODUCTION")
+                            .unit(finishedGoods.getUnit())
+                            .standardCost(finishedGoods.getStandardCost())
+                            .isActive(true)
+                            .build();
+                    return inProcessMaterialRepository.save(newMaterial);
+                });
+
+        // Check if InProcessStock already exists for this work order
+        Optional<InProcessStock> existingStock = inProcessStockRepository
+                .findByWorkOrderIdAndInProcessMaterialId(workOrder.getId(), inProcessMaterial.getId());
+
+        if (existingStock.isEmpty()) {
+            // Create new InProcessStock entry
+            InProcessStock inProcessStock = InProcessStock.builder()
+                    .inProcessMaterial(inProcessMaterial)
+                    .warehouse(workOrder.getWarehouse())
+                    .workOrder(workOrder)
+                    .quantity(workOrder.getPlannedQuantity())
+                    .stage("PRODUCTION")
+                    .batchNo(workOrder.getBatchNo())
+                    .build();
+            inProcessStockRepository.save(inProcessStock);
+            log.info("Created in-process stock for work order: {} - Quantity: {}", 
+                    workOrder.getWorkOrderNo(), workOrder.getPlannedQuantity());
+        } else {
+            // Update existing stock quantity
+            InProcessStock stock = existingStock.get();
+            stock.setQuantity(stock.getQuantity().add(workOrder.getPlannedQuantity()));
+            inProcessStockRepository.save(stock);
+            log.info("Updated in-process stock for work order: {} - New Quantity: {}", 
+                    workOrder.getWorkOrderNo(), stock.getQuantity());
+        }
     }
 
     @Override
@@ -202,8 +258,74 @@ public class WorkOrderServiceImpl implements WorkOrderService {
         workOrder.setRejectedQuantity(rejectedQuantity != null ? rejectedQuantity : BigDecimal.ZERO);
         workOrder.setStatus(WorkOrderStatus.COMPLETED);
         workOrder.setActualEndDate(LocalDateTime.now());
+        
+        WorkOrder savedWorkOrder = workOrderRepository.save(workOrder);
+        
+        // Create Finished Goods Stock entry when work order completes
+        if (completedQuantity.compareTo(BigDecimal.ZERO) > 0) {
+            createFinishedGoodsStock(savedWorkOrder, completedQuantity);
+        }
+        
+        // Remove from In-Process Stock
+        removeFromInProcessStock(savedWorkOrder);
 
-        return mapToResponse(workOrderRepository.save(workOrder));
+        log.info("Work order completed: {} - Finished goods stock created: {}", 
+                savedWorkOrder.getWorkOrderNo(), completedQuantity);
+        
+        return mapToResponse(savedWorkOrder);
+    }
+    
+    private void createFinishedGoodsStock(WorkOrder workOrder, BigDecimal quantity) {
+        FinishedGoods finishedGoods = workOrder.getFinishedGoods();
+        Warehouse warehouse = workOrder.getWarehouse();
+        
+        // Find existing stock or create new
+        Optional<FinishedGoodsStock> existingStock = finishedGoodsStockRepository
+                .findByFinishedGoodsAndWarehouseAndBatch(
+                        finishedGoods.getId(),
+                        warehouse.getId(),
+                        workOrder.getBatchNo());
+        
+        if (existingStock.isPresent()) {
+            // Update existing stock
+            FinishedGoodsStock stock = existingStock.get();
+            stock.setQuantity(stock.getQuantity().add(quantity));
+            stock.setManufacturingDate(workOrder.getActualEndDate() != null ? 
+                    workOrder.getActualEndDate().toLocalDate() : LocalDate.now());
+            finishedGoodsStockRepository.save(stock);
+            log.info("Updated finished goods stock for work order: {} - Added quantity: {}", 
+                    workOrder.getWorkOrderNo(), quantity);
+        } else {
+            // Create new stock entry
+            FinishedGoodsStock stock = FinishedGoodsStock.builder()
+                    .finishedGoods(finishedGoods)
+                    .warehouse(warehouse)
+                    .quantity(quantity)
+                    .reservedQuantity(BigDecimal.ZERO)
+                    .batchNo(workOrder.getBatchNo())
+                    .manufacturingDate(workOrder.getActualEndDate() != null ? 
+                            workOrder.getActualEndDate().toLocalDate() : LocalDate.now())
+                    .unitCost(finishedGoods.getStandardCost() != null ? 
+                            finishedGoods.getStandardCost() : BigDecimal.ZERO)
+                    .build();
+            finishedGoodsStockRepository.save(stock);
+            log.info("Created finished goods stock for work order: {} - Quantity: {}", 
+                    workOrder.getWorkOrderNo(), quantity);
+        }
+    }
+    
+    private void removeFromInProcessStock(WorkOrder workOrder) {
+        List<InProcessStock> inProcessStocks = inProcessStockRepository.findByWorkOrderId(workOrder.getId());
+        for (InProcessStock stock : inProcessStocks) {
+            // Reduce quantity or remove if quantity becomes zero
+            if (stock.getQuantity().compareTo(workOrder.getCompletedQuantity()) <= 0) {
+                inProcessStockRepository.delete(stock);
+            } else {
+                stock.setQuantity(stock.getQuantity().subtract(workOrder.getCompletedQuantity()));
+                inProcessStockRepository.save(stock);
+            }
+        }
+        log.info("Removed in-process stock for completed work order: {}", workOrder.getWorkOrderNo());
     }
 
     @Override

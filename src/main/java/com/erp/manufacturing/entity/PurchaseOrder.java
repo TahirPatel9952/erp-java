@@ -103,17 +103,29 @@ public class PurchaseOrder extends BaseEntity {
     }
 
     public void calculateTotals() {
-        subtotal = items.stream()
-                .map(PurchaseOrderItem::getTotal)
+        // Safely handle null totals/tax amounts for new items (before JPA callbacks run)
+        BigDecimal safeSubtotal = items.stream()
+                .map(item -> item.getTotal() != null ? item.getTotal() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        
-        discountAmount = subtotal.multiply(discountPercent).divide(new BigDecimal("100"));
-        
-        taxAmount = items.stream()
-                .map(PurchaseOrderItem::getTaxAmount)
+
+        BigDecimal safeDiscountPercent = discountPercent != null ? discountPercent : BigDecimal.ZERO;
+        BigDecimal safeShippingCharges = shippingCharges != null ? shippingCharges : BigDecimal.ZERO;
+
+        BigDecimal safeDiscountAmount = safeSubtotal
+                .multiply(safeDiscountPercent)
+                .divide(new BigDecimal("100"));
+
+        BigDecimal safeTaxAmount = items.stream()
+                .map(item -> item.getTaxAmount() != null ? item.getTaxAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        
-        grandTotal = subtotal.subtract(discountAmount).add(taxAmount).add(shippingCharges);
+
+        this.subtotal = safeSubtotal;
+        this.discountAmount = safeDiscountAmount;
+        this.taxAmount = safeTaxAmount;
+        this.grandTotal = safeSubtotal
+                .subtract(safeDiscountAmount)
+                .add(safeTaxAmount)
+                .add(safeShippingCharges);
     }
 }
 

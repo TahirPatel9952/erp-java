@@ -30,6 +30,7 @@ public class InvoiceServiceImpl implements InvoiceService {
     private final InvoiceRepository invoiceRepository;
     private final SalesOrderRepository salesOrderRepository;
     private final CustomerRepository customerRepository;
+    private final DeliveryChallanRepository deliveryChallanRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -148,8 +149,89 @@ public class InvoiceServiceImpl implements InvoiceService {
 
     @Override
     public InvoiceResponse createFromDeliveryChallan(Long challanId) {
-        // Similar to createFromSalesOrder but using delivery challan
-        throw new BusinessException("Not implemented yet");
+        DeliveryChallan challan = deliveryChallanRepository.findById(challanId)
+                .orElseThrow(() -> new ResourceNotFoundException("Delivery Challan", "id", challanId));
+
+        if (challan.getSalesOrder() == null) {
+            throw new BusinessException("Delivery challan must be linked to a sales order");
+        }
+
+        SalesOrder so = challan.getSalesOrder();
+        String invoiceNumber = generateInvoiceNumber();
+
+        Invoice invoice = Invoice.builder()
+                .invoiceNumber(invoiceNumber)
+                .customer(challan.getCustomer())
+                .salesOrder(so)
+                .deliveryChallan(challan)
+                .invoiceDate(LocalDate.now())
+                .dueDate(LocalDate.now().plusDays(so.getCustomer().getPaymentTerms() != null ? 
+                        so.getCustomer().getPaymentTerms() : 30))
+                .paymentStatus(PaymentStatus.UNPAID)
+                .billingAddress(challan.getCustomer().getBillingAddress())
+                .shippingAddress(challan.getShippingAddress())
+                .shippingCity(challan.getShippingCity())
+                .shippingState(challan.getShippingState())
+                .shippingPincode(challan.getShippingPincode())
+                .subtotal(so.getSubtotal())
+                .discountPercent(so.getDiscountPercent())
+                .discountAmount(so.getDiscountAmount())
+                .totalTaxAmount(so.getTaxAmount())
+                .shippingCharges(so.getShippingCharges())
+                .grandTotal(so.getGrandTotal())
+                .paidAmount(BigDecimal.ZERO)
+                .build();
+
+        // Copy items from delivery challan items (or sales order if challan items not available)
+        if (challan.getItems() != null && !challan.getItems().isEmpty()) {
+            for (DeliveryChallanItem challanItem : challan.getItems()) {
+                InvoiceItem item = InvoiceItem.builder()
+                        .finishedGoods(challanItem.getFinishedGoods())
+                        .quantity(challanItem.getQuantity())
+                        .unitPrice(so.getItems().stream()
+                                .filter(soItem -> soItem.getFinishedGoods().getId().equals(challanItem.getFinishedGoods().getId()))
+                                .findFirst()
+                                .map(SalesOrderItem::getUnitPrice)
+                                .orElse(BigDecimal.ZERO))
+                        .discountPercent(so.getDiscountPercent())
+                        .cgstPercent(so.getItems().stream()
+                                .filter(soItem -> soItem.getFinishedGoods().getId().equals(challanItem.getFinishedGoods().getId()))
+                                .findFirst()
+                                .map(SalesOrderItem::getCgstPercent)
+                                .orElse(BigDecimal.ZERO))
+                        .sgstPercent(so.getItems().stream()
+                                .filter(soItem -> soItem.getFinishedGoods().getId().equals(challanItem.getFinishedGoods().getId()))
+                                .findFirst()
+                                .map(SalesOrderItem::getSgstPercent)
+                                .orElse(BigDecimal.ZERO))
+                        .igstPercent(so.getItems().stream()
+                                .filter(soItem -> soItem.getFinishedGoods().getId().equals(challanItem.getFinishedGoods().getId()))
+                                .findFirst()
+                                .map(SalesOrderItem::getIgstPercent)
+                                .orElse(BigDecimal.ZERO))
+                        .build();
+                invoice.addItem(item);
+            }
+        } else {
+            // Fallback to sales order items if challan items not available
+            for (SalesOrderItem soItem : so.getItems()) {
+                InvoiceItem item = InvoiceItem.builder()
+                        .finishedGoods(soItem.getFinishedGoods())
+                        .quantity(soItem.getQuantity())
+                        .unitPrice(soItem.getUnitPrice())
+                        .discountPercent(soItem.getDiscountPercent())
+                        .cgstPercent(soItem.getCgstPercent())
+                        .sgstPercent(soItem.getSgstPercent())
+                        .igstPercent(soItem.getIgstPercent())
+                        .build();
+                invoice.addItem(item);
+            }
+        }
+
+        Invoice saved = invoiceRepository.save(invoice);
+        log.info("Invoice created from delivery challan: {}", invoiceNumber);
+
+        return mapToResponse(saved);
     }
 
     @Override
