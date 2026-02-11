@@ -22,6 +22,16 @@ public interface RawMaterialStockRepository extends JpaRepository<RawMaterialSto
     Optional<RawMaterialStock> findByRawMaterialIdAndWarehouseIdAndBatchNo(
             Long rawMaterialId, Long warehouseId, String batchNo);
 
+    @Query("SELECT s FROM RawMaterialStock s WHERE s.rawMaterial.id = :rawMaterialId " +
+           "AND s.warehouse.id = :warehouseId " +
+           "AND (:locationId IS NULL AND s.location IS NULL OR :locationId IS NOT NULL AND s.location.id = :locationId) " +
+           "AND (:batchNo IS NULL AND (s.batchNo IS NULL OR s.batchNo = '') OR :batchNo IS NOT NULL AND s.batchNo = :batchNo)")
+    Optional<RawMaterialStock> findByRawMaterialIdAndWarehouseIdAndLocationIdAndBatchNo(
+            @Param("rawMaterialId") Long rawMaterialId,
+            @Param("warehouseId") Long warehouseId,
+            @Param("locationId") Long locationId,
+            @Param("batchNo") String batchNo);
+
     @Query("SELECT SUM(s.quantity) FROM RawMaterialStock s WHERE s.rawMaterial.id = :rawMaterialId")
     BigDecimal getTotalStockQuantity(@Param("rawMaterialId") Long rawMaterialId);
 

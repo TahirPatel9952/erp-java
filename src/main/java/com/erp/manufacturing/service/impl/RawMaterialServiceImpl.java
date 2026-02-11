@@ -138,6 +138,7 @@ public class RawMaterialServiceImpl implements RawMaterialService {
 
     @Override
     public PageResponse<RawMaterialResponse> getAll(Pageable pageable) {
+        System.out.println("getAll called"+pageable);
         Page<RawMaterial> page = rawMaterialRepository.findAll(pageable);
         return PageResponse.from(page, page.getContent().stream()
                 .map(this::mapToResponse)
